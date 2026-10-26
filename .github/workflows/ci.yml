@@ -9,7 +9,6 @@ on:
 permissions:
   contents: read
   packages: write
-  deployments: write
 
 jobs:
   build-test:
@@ -17,21 +16,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
 
-      - name: Build Docker image
-        run: docker build -t java-stock-api:${{ github.sha }} .
-
-      - name: Run tests inside container
+      - name: Download Gradle
         run: |
-          docker run --rm \
-            -e SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/testdb \
-            java-stock-api:${{ github.sha }} \
-            java -cp /app.jar org.springframework.boot.loader.PropertiesLauncher || true
+          curl -s "https://get.sdkman.io" | bash
+          source "$HOME/.sdkman/bin/sdkman-init.sh"
+          sdk install gradle 8.5
 
-      - name: Upload test results placeholder
-        run: echo "Build successful"
+      - name: Build with Gradle
+        run: |
+          export PATH="$HOME/.sdkman/candidates/gradle/current/bin:$PATH"
+          gradle clean build --no-daemon
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: build/libs/*.jar
 
   build-image:
     needs: build-test
@@ -41,6 +48,12 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: build/libs
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -56,16 +69,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository }}:latest
+          tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  deploy:
-    needs: build-image
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy placeholder
-        run: echo "Ready for VPS deployment"
